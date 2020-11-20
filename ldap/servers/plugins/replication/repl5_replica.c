@@ -386,6 +386,20 @@ replica_destroy(void **arg)
     slapi_ch_free((void **)arg);
 }
 
+/******************************************************************************
+ ******************** REPLICATION KEEP ALIVE ENTRIES **************************
+ ******************************************************************************
+ * They are subentries of the replicated suffix and there is one per master.  *
+ * These entries exist only to trigger a change that get replicated over the  *
+ * topology.                                                                  *
+ * Their main purpose is to generate records in the changelog and they are    *
+ * updated from time to time by fractional replication to insure that at      *
+ * least a change must be replicated by FR after a great number of not        *
+ * replicated changes are found in the changelog. The interest is that the    *
+ * fractional RUV get then updated so less changes need to be walked in the   *
+ * changelog when searching for the first change to send                      *
+ ******************************************************************************/
+
 #define KEEP_ALIVE_ATTR "keepalivetimestamp"
 #define KEEP_ALIVE_ENTRY "repl keep alive"
 #define KEEP_ALIVE_DN_FORMAT "cn=%s %d,%s"
@@ -813,6 +827,36 @@ replica_set_ruv(Replica *r, RUV *ruv)
     }
 
     replica_unlock(r->repl_lock);
+}
+
+/*
+ * Check if replica generation is the same than the remote ruv one
+ */
+int
+replica_check_generation(Replica *r, const RUV *remote_ruv)
+{
+    int return_value;
+    char *local_gen = NULL;
+    char *remote_gen = ruv_get_replica_generation(remote_ruv);
+    Object *local_ruv_obj;
+    RUV *local_ruv;
+
+    PR_ASSERT(NULL != r);
+    local_ruv_obj = replica_get_ruv(r);
+    if (NULL != local_ruv_obj) {
+        local_ruv = (RUV *)object_get_data(local_ruv_obj);
+        PR_ASSERT(local_ruv);
+        local_gen = ruv_get_replica_generation(local_ruv);
+        object_release(local_ruv_obj);
+    }
+    if (NULL == remote_gen || NULL == local_gen || strcmp(remote_gen, local_gen) != 0) {
+        return_value = PR_FALSE;
+    } else {
+        return_value = PR_TRUE;
+    }
+    slapi_ch_free_string(&remote_gen);
+    slapi_ch_free_string(&local_gen);
+    return return_value;
 }
 
 /*
@@ -1300,6 +1344,11 @@ replica_update_csngen_state_ext(Replica *r, const RUV *ruv, const CSN *extracsn)
     CSN *csn = NULL;
 
     PR_ASSERT(r && ruv);
+
+    if (!replica_check_generation(r, ruv)) /* ruv has wrong generation - we are done */
+    {
+        return 0;
+    }
 
     rc = ruv_get_max_csn(ruv, &csn);
     if (rc != RUV_SUCCESS) {
@@ -3727,8 +3776,8 @@ replica_update_ruv_consumer(Replica *r, RUV *supplier_ruv)
         replica_lock(r->repl_lock);
 
         local_ruv = (RUV *)object_get_data(r->repl_ruv);
-
-        if (is_cleaned_rid(supplier_id) || local_ruv == NULL) {
+        if (is_cleaned_rid(supplier_id) || local_ruv == NULL ||
+                !replica_check_generation(r, supplier_ruv)) {
             replica_unlock(r->repl_lock);
             return;
         }

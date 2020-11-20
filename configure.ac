@@ -164,7 +164,7 @@ else
 fi
 AC_SUBST([asan_cflags])
 AC_SUBST([asan_rust_defs])
-AM_CONDITIONAL(enable_asan,test "$enable_asan" = "yes")
+AM_CONDITIONAL(enable_asan,[test "$enable_asan" = yes])
 
 AC_MSG_CHECKING(for --enable-msan)
 AC_ARG_ENABLE(msan, AS_HELP_STRING([--enable-msan], [Enable gcc/clang memory sanitizer options (default: no)]),
@@ -352,19 +352,7 @@ else
 fi
 AM_CONDITIONAL(enable_bitwise,test "$enable_bitwise" = "yes")
 
-if test -z "$enable_presence" ; then
-   enable_presence=no # if not set on cmdline, set default
-fi
-AC_MSG_CHECKING(for --enable-presence)
-AC_ARG_ENABLE(presence,
-        AS_HELP_STRING([--enable-presence],
-                       [enable the presence plugin (default: no)]))
-if test "$enable_presence" = yes ; then
-  AC_MSG_RESULT(yes)
-  AC_DEFINE([ENABLE_PRESENCE], [1], [enable the presence plugin])
-else
-  AC_MSG_RESULT(no)
-fi
+# Can never be enabled.
 AM_CONDITIONAL(enable_presence,test "$enable_presence" = "yes")
 
 if test -z "$enable_acctpolicy" ; then

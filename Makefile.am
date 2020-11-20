@@ -324,14 +324,6 @@ LIBBITWISE_PLUGIN = libbitwise-plugin.la
 enable_bitwise = 1
 endif
 
-if enable_presence
-LIBPRESENCE_PLUGIN = libpresence-plugin.la
-LIBPRESENCE_SCHEMA = $(srcdir)/ldap/schema/10presence.ldif
-enable_presence = on
-else
-enable_presence = off
-endif
-
 if enable_acctpolicy
 LIBACCTPOLICY_PLUGIN = libacctpolicy-plugin.la
 LIBACCTPOLICY_SCHEMA = $(srcdir)/ldap/schema/60acctpolicy.ldif
@@ -343,7 +335,7 @@ serverplugin_LTLIBRARIES = libacl-plugin.la \
 	libattr-unique-plugin.la \
 	libautomember-plugin.la libback-ldbm.la libchainingdb-plugin.la \
 	libcollation-plugin.la libcos-plugin.la libderef-plugin.la \
-	libpbe-plugin.la libdistrib-plugin.la libhttp-client-plugin.la \
+	libpbe-plugin.la libdistrib-plugin.la \
 	liblinkedattrs-plugin.la libmanagedentries-plugin.la \
 	libmemberof-plugin.la libpassthru-plugin.la libpwdstorage-plugin.la \
 	libcontentsync-plugin.la \
@@ -463,8 +455,6 @@ dist_noinst_HEADERS = \
 	ldap/servers/plugins/sync/sync.h \
 	ldap/servers/plugins/passthru/passthru.h \
 	ldap/servers/plugins/rever/rever.h \
-	ldap/servers/plugins/http/http_client.h \
-	ldap/servers/plugins/http/http_impl.h \
 	ldap/servers/plugins/automember/automember.h \
 	ldap/servers/plugins/mep/mep.h \
 	ldap/servers/slapd/agtmmap.h \
@@ -476,7 +466,6 @@ dist_noinst_HEADERS = \
 	ldap/servers/slapd/filter.h \
 	ldap/servers/slapd/getopt_ext.h \
 	ldap/servers/slapd/getsocketpeer.h \
-	ldap/servers/slapd/http.h \
 	ldap/servers/slapd/intrinsics.h \
 	ldap/servers/slapd/log.h \
 	ldap/servers/slapd/openldapber.h \
@@ -924,6 +913,7 @@ RSLAPD_LIB = @abs_top_builddir@/rs/@rust_target_dir@/librslapd.a
 librslapd_la_SOURCES = \
 	src/librslapd/Cargo.toml \
 	src/librslapd/build.rs \
+	src/librslapd/src/cache.rs \
 	src/librslapd/src/lib.rs
 
 librslapd_la_EXTRA = src/librslapd/Cargo.lock
@@ -1205,6 +1195,14 @@ libslapd_la_SOURCES = ldap/servers/slapd/add.c \
 
 libslapd_la_CPPFLAGS = $(AM_CPPFLAGS) $(DSPLUGIN_CPPFLAGS) $(SASL_CFLAGS) @db_inc@ $(KERBEROS_CFLAGS) $(PCRE_CFLAGS) $(SDS_CPPFLAGS) $(SVRCORE_INCLUDES)
 libslapd_la_LIBADD = $(LDAPSDK_LINK) $(SASL_LINK) $(NSS_LINK) $(NSPR_LINK) $(KERBEROS_LIBS) $(PCRE_LIBS) $(THREADLIB) $(SYSTEMD_LIBS) libsds.la libsvrcore.la
+# If asan is enabled, it creates special libcrypt interceptors. However, they are
+# detected by the first load of libasan at runtime, and what is in the linked lib
+# so we need libcrypt to be present as soon as libasan is loaded for the interceptors
+# to function. Since ns-slapd links libslapd, this is pulled at startup, which allows
+# pwdstorage to be asan checked with libcrypt.
+if enable_asan
+libslapd_la_LIBADD += $(LIBCRYPT)
+endif
 libslapd_la_LDFLAGS = $(AM_LDFLAGS) $(SLAPD_LDFLAGS)
 
 if RUST_ENABLE
@@ -1510,17 +1508,6 @@ libdna_plugin_la_DEPENDENCIES = libslapd.la
 libdna_plugin_la_LDFLAGS = -avoid-version
 
 #------------------------
-# libhttp-client-plugin
-#------------------------
-libhttp_client_plugin_la_SOURCES = ldap/servers/plugins/http/http_client.c \
-	ldap/servers/plugins/http/http_impl.c
-
-libhttp_client_plugin_la_CPPFLAGS = $(AM_CPPFLAGS) $(DSPLUGIN_CPPFLAGS)
-libhttp_client_plugin_la_LIBADD = libslapd.la $(NSS_LINK) $(NSPR_LINK)
-libhttp_client_plugin_la_DEPENDENCIES = libslapd.la
-libhttp_client_plugin_la_LDFLAGS = -avoid-version
-
-#------------------------
 # liblinkedattrs-plugin
 #------------------------
 liblinkedattrs_plugin_la_SOURCES = ldap/servers/plugins/linkedattrs/fixup_task.c \
@@ -1593,16 +1580,6 @@ libposix_winsync_plugin_la_CPPFLAGS = $(AM_CPPFLAGS) $(DSPLUGIN_CPPFLAGS) -DWINS
 libposix_winsync_plugin_la_LIBADD = libslapd.la $(LDAPSDK_LINK) $(NSPR_LINK)
 libposix_winsync_plugin_la_DEPENDENCIES = libslapd.la
 libposix_winsync_plugin_la_LDFLAGS = -avoid-version
-
-#------------------------
-# libpresence-plugin
-#------------------------
-libpresence_plugin_la_SOURCES = ldap/servers/plugins/presence/presence.c
-
-libpresence_plugin_la_CPPFLAGS = -I$(srcdir)/ldap/servers/plugins/http $(AM_CPPFLAGS) $(DSPLUGIN_CPPFLAGS)
-libpresence_plugin_la_LIBADD = libslapd.la
-libpresence_plugin_la_DEPENDENCIES = libslapd.la
-libpresence_plugin_la_LDFLAGS = -avoid-version
 
 #------------------------
 # libpwdstorage-plugin
@@ -2040,7 +2017,6 @@ fixupcmd = sed \
 	-e 's,@enable_tsan\@,$(TSAN_ON),g' \
 	-e 's,@enable_ubsan\@,$(UBSAN_ON),g' \
 	-e 's,@SANITIZER\@,$(SANITIZER),g' \
-	-e 's,@enable_perl\@,@enable_perl@,g' \
 	-e 's,@enable_rust\@,@enable_rust@,g' \
 	-e 's,@ECHO_N\@,$(ECHO_N),g' \
 	-e 's,@ECHO_C\@,$(ECHO_C),g' \
