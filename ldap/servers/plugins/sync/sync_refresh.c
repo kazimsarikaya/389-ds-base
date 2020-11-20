@@ -235,7 +235,7 @@ sync_srch_refresh_post_search(Slapi_PBlock *pb)
          * it's false, the moment we send a single intermediate delete message, we
          * delete literally everything 🔥.
          */
-        if (info->cookie && info->cookie->openldap_compat) {
+        if (info->cookie && info->cookie && info->cookie->openldap_compat) {
             sync_create_sync_done_control(&ctrl[0], 1, cookiestr);
         } else {
             sync_create_sync_done_control(&ctrl[0], 0, cookiestr);
